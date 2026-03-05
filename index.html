@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Image Juxtaposition (Horizontal)</title>
+<style>
+  :root{
+    --bg:#111;
+    --line:#fff;
+    --lineShadow: rgba(0,0,0,.35);
+    --labelBg: rgba(0,0,0,.55);
+    --labelText:#fff;
+    --radius:14px;
+    --shadow: 0 10px 26px rgba(0,0,0,.14);
+    --handleSize:44px;
+    --stroke:4px;
+    --fit: contain; /* set to cover if you prefer fill/crop */
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; }
+  body{ font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background:transparent; }
+
+  /* Rise-friendly: fixed height avoids iframe/viewport weirdness */
+  .stage{
+  position:relative;
+  width:100%;
+  max-width:1100px;
+  margin: 0 auto;
+  background: var(--bg);
+  overflow:hidden;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  user-select:none;
+  touch-action:none;
+  outline:none;
+
+  /* Keep the container proportional to the images to avoid side "letterbox" space */
+  height: auto;
+  aspect-ratio: 16 / 9; /* replaced via JS once the image loads */
+}
+
+  .img{
+    position:absolute;
+    inset:0;
+    width:100%;
+    height:100%;
+    object-fit: var(--fit);
+    object-position:center;
+    pointer-events:none;
+  }
+
+  /* Horizontal mode: After is on top, revealed by clip width */
+  .clip{position:absolute;inset:0;overflow:hidden;will-change:clip-path;-webkit-clip-path: inset(0 0 50% 0);clip-path: inset(0 0 50% 0);  transition: clip-path 80ms linear, -webkit-clip-path 80ms linear;
+}
+
+  /* Labels similar to H5P */
+  .label{
+    position:absolute;
+    top:12px;
+    padding:6px 10px;
+    border-radius:999px;
+    background: var(--labelBg);
+    color: var(--labelText);
+    font-size:12px;
+    font-weight:800;
+    pointer-events:none;
+  }
+  .label.before{ left:12px; bottom:12px; top:auto; }
+  .label.after{ left:12px; right:auto; }
+
+  /* Divider line + handle */
+  .divider{position:absolute;left:0;right:0;top:50%;height:0;pointer-events:none;will-change:top;  transition: top 80ms linear;
+}
+  .divider::before{content:"";position:absolute;left:0;right:0;height: var(--stroke);background: var(--line);box-shadow: 0 2px 10px var(--lineShadow);transform: translateY(calc(-1 * var(--stroke) / 2));}
+
+  .handle{position:absolute;left:50%;top:0;transform: translate(-50%, calc(-1 * var(--handleSize) / 2));width: var(--handleSize);height: var(--handleSize);border-radius:999px;background:#fff;border:1px solid rgba(0,0,0,.18);box-shadow: 0 8px 18px rgba(0,0,0,.25);display:grid;place-items:center;}
+
+  
+  .arrowStack{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  line-height:1;
+  gap:2px;
+  transform: translateY(-1px);
+}
+.arrow{
+  font-size:14px;
+  font-weight:900;
+  color:#111;
+  display:block;
+  height:14px;
+}
+.arrow.up{ margin-top:1px; }
+.arrow.down{ margin-bottom:1px; }
+/* Mobile */
+  }
+.stage.is-dragging .clip,
+.stage.is-dragging .divider{
+  transition: none !important;
+}
+
+.handle{
+  transition: transform 150ms ease;
+}
+.stage.is-dragging .handle{
+  transform: translate(-50%, calc(-1 * var(--handleSize) / 2)) scale(1.06);
+}
+</style>
+</head>
+<body>
+
+<div class="stage" id="stage" tabindex="0" aria-label="Compare before and after images. Drag up or down.">
+  <!-- Base (BEFORE) -->
+  <img class="img" src="before.jpg" alt="Before image">
+
+  <!-- Overlay (AFTER), revealed by width -->
+  <div class="clip" id="clip" aria-hidden="true">
+    <img class="img" src="after.jpg" alt="">
+  </div>
+
+  <div class="label before">Feedback</div>
+  <div class="label after">Submission</div>
+
+  <div class="divider" id="divider" aria-hidden="true">
+    <div class="handle" aria-hidden="true"><div class="arrowStack" aria-hidden="true"><span class="arrow up">▲</span><span class="arrow down">▼</span></div></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const stage = document.getElementById('stage');
+  const clip = document.getElementById('clip');
+  const divider = document.getElementById('divider');
+
+  
+
+// Match the stage aspect ratio to the image so it "fits" without side bars.
+const beforeImg = stage.querySelector('img[alt="Before image"]') || stage.querySelector('img');
+function setAspect(){
+  if(!beforeImg || !beforeImg.naturalWidth || !beforeImg.naturalHeight) return;
+  stage.style.aspectRatio = `${beforeImg.naturalWidth} / ${beforeImg.naturalHeight}`;
+}
+if(beforeImg){
+  if(beforeImg.complete) setAspect();
+  beforeImg.addEventListener('load', setAspect);
+}
+let value = 50;
+  let dragging = false;
+
+  function clamp(n,a,b){ return Math.max(a, Math.min(b, n)); }
+
+  function apply(v){
+    value = clamp(Math.round(v), 0, 100);
+
+    // Reveal AFTER by masking from the bottom (no resizing/zoom)
+    const bottom = 100 - value;
+    clip.style.clipPath = `inset(0 0 ${bottom}% 0)`;
+    clip.style.webkitClipPath = `inset(0 0 ${bottom}% 0)`;
+
+    // Move divider line
+    divider.style.top = value + '%';
+  }
+
+  function fromClientY(clientY){
+    const r = stage.getBoundingClientRect();
+    const y = clientY - r.top;
+    return (y / r.height) * 100;
+  }
+
+  apply(value);
+
+  stage.addEventListener('pointerdown', (e) => {
+    dragging = true;
+    stage.classList.add('is-dragging');
+    stage.setPointerCapture(e.pointerId);
+    apply(fromClientY(e.clientY));
+  });
+
+  stage.addEventListener('pointermove', (e) => {
+    if(!dragging) return;
+    apply(fromClientY(e.clientY));
+  });
+
+  function end(){ dragging = false; stage.classList.remove('is-dragging'); }
+  stage.addEventListener('pointerup', end);
+  stage.addEventListener('pointercancel', end);
+  stage.addEventListener('lostpointercapture', end);
+
+  stage.addEventListener('keydown', (e) => {
+    if(e.key === 'ArrowUp')   { apply(value - 2); e.preventDefault(); }
+    if(e.key === 'ArrowDown') { apply(value + 2); e.preventDefault(); }
+    if(e.key === 'Home')      { apply(0); e.preventDefault(); }
+    if(e.key === 'End')       { apply(100); e.preventDefault(); }
+  });
+})();
+</script>
+
+</body>
+</html>
